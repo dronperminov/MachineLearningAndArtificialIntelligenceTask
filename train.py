@@ -9,8 +9,9 @@ from sklearn.base import clone
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import RidgeClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
@@ -100,15 +101,17 @@ def main():
         'KNN': KNeighborsClassifier(n_neighbors=5),
         'Naive Bayes': GaussianNB(),
         'SVM': SVC(random_state=random_state),
+        'Ridge': RidgeClassifier(),
         'MLP': MLPClassifier(random_state=random_state),
         'Decision tree': DecisionTreeClassifier(random_state=random_state),
         'Random forest': RandomForestClassifier(random_state=random_state),
+        'Gradient boost': GradientBoostingClassifier(random_state=random_state),
         'XGBoost': XGBClassifier(use_label_encoder=False, verbosity=0, random_state=random_state),
         'CatBoost': CatBoostClassifier(verbose=False, random_state=random_state),
     }
 
     print('## Результаты кроссвалидации')
-    cross_val(models, features, labels)
+    cross_val(models, features, labels, n_splits=10)
 
     print('## Результаты обучения')
     train(models, train_features, train_labels, test_features, test_labels)
