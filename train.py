@@ -45,6 +45,15 @@ def mean(values):
     return sum(values) / len(values)
 
 
+def print_average(average_results):
+    print('### Усреднённые результаты кроссвалидации')
+    print('|           Модель           | Recall | Precision | macro f1 | Accuracy |')
+    print('|                        :-: |    :-: |       :-: |      :-: |      :-: |')
+
+    for name, results in average_results.items():
+        print(f'| {name:26} | {results["Recall"]:6.4} | {results["Precision"]:9.4} | {results["f1"]:8.4} | {results["Accuracy"]:8.4} |')
+
+
 def train(models, train_features, train_labels, test_features, test_labels):
     for name, model in models.items():
         model.fit(train_features, train_labels)
@@ -58,14 +67,17 @@ def train(models, train_features, train_labels, test_features, test_labels):
 
 
 def cross_val(models, features, labels, n_splits=10):
+    average_results = dict()
+
     for model_name, model in models.items():
         kfold = KFold(n_splits=n_splits)
 
-        recalls, precisions, f1s, accuracies = [], [], [], []
-
-        print(f'### {model_name}')
-        print('| Разбиение | Recall | Precision | macro f1 | Accuracy |')
-        print('|       :-: |    :-: |       :-: |      :-: |      :-: |')
+        metrics = {
+            'Recall': [],
+            'Precision': [],
+            'f1': [],
+            'Accuracy': []
+        }
 
         for fold, (train_index, test_index) in enumerate(kfold.split(features)):
             train_features, test_features = features.iloc[train_index], features.iloc[test_index]
@@ -74,17 +86,29 @@ def cross_val(models, features, labels, n_splits=10):
             model = clone(model)
             model.fit(train_features, train_labels)
 
-            name = f'{fold + 1} / {n_splits}'
             recall, precision, f1, accuracy = eval_model(model, test_features, test_labels)
 
-            recalls.append(recall)
-            precisions.append(precision)
-            f1s.append(f1)
-            accuracies.append(accuracy)
+            metrics['Recall'].append(recall)
+            metrics['Precision'].append(precision)
+            metrics['f1'].append(f1)
+            metrics['Accuracy'].append(accuracy)
 
-            print(f'| {name:9} | {recall:6.4} | {precision:9.4} | {f1:8.4} | {accuracy:8.4} |')
+        average_results[model_name] = dict()
+        for metric, values in metrics.items():
+            avg = mean(values)
+            values.append(avg)
+            average_results[model_name][metric] = avg
 
-        print(f'| в среднем | {mean(recalls):6.4} | {mean(precisions):9.4} | {mean(f1s):8.4} | {mean(accuracies):8.4} |\n')
+        splits = [f'{fold + 1} / {n_splits}' for fold in range(n_splits)] + ['в среднем']
+
+        print(f'### {model_name}')
+        print('| Разбиение  |' + ' | '.join(['%10s' % split for split in splits]) + ' |')
+        print('|       :-:  |' + ' | '.join(['%10s' % ':-:' for _ in splits]) + ' |')
+        for metric, values in metrics.items():
+            print(f'| {metric:10} |' + ' | '.join(['%10.4f' % value for value in values]) + ' |')
+        print()
+
+    print_average(average_results)
 
 
 def main():
@@ -113,7 +137,7 @@ def main():
     print('## Результаты кроссвалидации')
     cross_val(models, features, labels, n_splits=10)
 
-    print('## Результаты обучения')
+    print('\n## Результаты обучения')
     train(models, train_features, train_labels, test_features, test_labels)
 
 
