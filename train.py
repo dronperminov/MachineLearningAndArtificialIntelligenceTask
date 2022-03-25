@@ -64,13 +64,20 @@ def mean(values):
     return sum(values) / len(values)
 
 
-def print_average(average_results):
-    print('### Усреднённые результаты кроссвалидации')
-    print('|           Модель           | Recall | Precision | macro f1 | Accuracy |')
-    print('|                        :-: |    :-: |       :-: |      :-: |      :-: |')
+def print_average(average_results, sort_key=None):
+    max_len = max([len(name) for name in average_results])
 
-    for name, results in average_results.items():
-        print(f'| {name:26} | {results["Recall"]:6.4} | {results["Precision"]:9.4} | {results["f1"]:8.4} | {results["Accuracy"]:8.4} |')
+    print('### Усреднённые результаты кроссвалидации')
+    print(f'| {"Модель":^{max_len}} | Recall | Precision | macro f1 | Accuracy |')
+    print(f'| {":-:":>{max_len}} |    :-: |       :-: |      :-: |      :-: |')
+
+    rows = [{'name': name, **results} for name, results in average_results.items()]
+
+    if sort_key is not None:
+        rows.sort(key=lambda x: x[sort_key])
+
+    for row in rows:
+        print(f'| {row["name"]:{max_len}} | {row["Recall"]:6.4} | {row["Precision"]:9.4} | {row["f1"]:8.4} | {row["Accuracy"]:8.4} |')
 
 
 def get_optimal_parameters(name, model, parameters, features, labels):
@@ -188,7 +195,7 @@ def main():
     average_results = cross_val(models, features, labels, n_splits=10)
 
     print(get_preprocess_name(preprocessing_mode))
-    print_average(average_results)
+    print_average(average_results, sort_key='f1')
 
     print('\n## Результаты обучения')
     train(models, train_features, train_labels, test_features, test_labels)
