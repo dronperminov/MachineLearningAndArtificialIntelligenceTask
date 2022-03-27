@@ -1,9 +1,10 @@
 from typing import List, Tuple
 import pandas as pd
+from itertools import product
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import precision_score, recall_score, f1_score
-from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.model_selection import KFold
 from sklearn.base import clone
 
 from sklearn.tree import DecisionTreeClassifier
@@ -64,29 +65,27 @@ def mean(values):
     return sum(values) / len(values)
 
 
-def print_average(average_results, sort_key=None):
+def print_average(average_results, sort_key=None, log_path: str = ''):
     max_len = max([len(name) for name in average_results])
-
-    print('### Усреднённые результаты кроссвалидации')
-    print(f'| {"Модель":^{max_len}} | Recall | Precision | macro f1 | Accuracy |')
-    print(f'| {":-:":>{max_len}} |    :-: |       :-: |      :-: |      :-: |')
-
     rows = [{'name': name, **results} for name, results in average_results.items()]
 
     if sort_key is not None:
         rows.sort(key=lambda x: x[sort_key])
 
+    lines = [
+        '### Усреднённые результаты кроссвалидации',
+        f'| {"Модель":^{max_len}} | Recall | Precision | macro f1 | Accuracy |',
+        f'| {":-:":>{max_len}} |    :-: |       :-: |      :-: |      :-: |'
+    ]
+
     for row in rows:
-        print(f'| {row["name"]:{max_len}} | {row["Recall"]:6.4} | {row["Precision"]:9.4} | {row["f1"]:8.4} | {row["Accuracy"]:8.4} |')
+        lines.append(f'| {row["name"]:{max_len}} | {row["Recall"]:6.4} | {row["Precision"]:9.4} | {row["f1"]:8.4} | {row["Accuracy"]:8.4} |')
 
-
-def get_optimal_parameters(name, model, parameters, features, labels):
-    grid = GridSearchCV(estimator=clone(model), param_grid=parameters, cv=5, n_jobs=-1, verbose=1, scoring='f1_macro')
-    grid.fit(features, labels)
-    print(f'{name}:')
-    print(f'    best score: {grid.best_score_}')
-    print(f'    best parameters: {grid.best_params_}')
-    return grid.best_params_
+    if log_path:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+    else:
+        print('\n'.join(lines))
 
 
 def train(models, train_features, train_labels, test_features, test_labels):
@@ -101,7 +100,7 @@ def train(models, train_features, train_labels, test_features, test_labels):
         print(f'| {name:26} | {recall:6.4} | {precision:9.4} | {f1:8.4} | {acc:8.4} |')
 
 
-def cross_val(models, features, labels, n_splits=10):
+def cross_val(models, features, labels, log_path: str = '', n_splits=10):
     average_results = dict()
 
     for model_name, model in models.items():
@@ -134,6 +133,9 @@ def cross_val(models, features, labels, n_splits=10):
             values[0] = avg
             average_results[model_name][metric] = avg
 
+        if log_path:
+            print_average(average_results, sort_key='f1', log_path=log_path)
+
         splits = ['в среднем'] + [f'{fold + 1} / {n_splits}' for fold in range(n_splits)]
 
         print(f'### {model_name}')
@@ -144,6 +146,98 @@ def cross_val(models, features, labels, n_splits=10):
         print()
 
     return average_results
+
+
+def init_models(random_state):
+    opt_xgboost_params = dict(
+        booster="gbtree",
+        tree_method="approx",
+        learning_rate=0.1,
+        max_depth=4,
+        n_estimators=400,
+        colsample_bynode=1,
+        colsample_bytree=0.5,
+    )
+
+    opt_catboost_params = dict(
+        learning_rate=0.25,
+        max_depth=3,
+        iterations=1000,
+        l2_leaf_reg=3,
+    )
+
+    models = {
+        'Logistic regression': LogisticRegression(multi_class="multinomial", max_iter=1000, random_state=random_state),
+        'Nearest centroid': NearestCentroid(),
+        'KNN': KNeighborsClassifier(n_neighbors=5),
+        'Naive Bayes': GaussianNB(),
+        'Passive aggressive': PassiveAggressiveClassifier(random_state=random_state),
+        'SVM': SVC(random_state=random_state),
+        'Ridge': RidgeClassifier(random_state=random_state),
+        'Perceptron': Perceptron(random_state=random_state),
+        'Multi layer perceptron': MLPClassifier(random_state=random_state),
+        'Decision tree': DecisionTreeClassifier(random_state=random_state),
+        'Random forest': RandomForestClassifier(random_state=random_state),
+        'Gradient boost': GradientBoostingClassifier(random_state=random_state),
+        'XGBoost': XGBClassifier(use_label_encoder=False, verbosity=0, random_state=random_state),
+        'XGBoost (optimal)': XGBClassifier(use_label_encoder=False, verbosity=0, random_state=random_state, **opt_xgboost_params),
+        'CatBoost': CatBoostClassifier(verbose=False, random_state=random_state),
+        'CatBoost (optimal)': CatBoostClassifier(verbose=False, random_state=random_state, **opt_catboost_params),
+    }
+
+    return models
+
+
+def init_grid_xgboost_models(random_state):
+    models = {
+        'XGBoost default': XGBClassifier(use_label_encoder=False, verbosity=0, random_state=random_state),
+    }
+
+    lrs = [0.04, 0.08, 0.1, 0.25, 0.5]
+    depths = [3, 4, 5]
+    ns_estimators = [100, 250, 400, 600, 800]
+    colsamples_bynode = [0.5, 0.8, 1]
+    colsamples_bytree = [0.5, 0.8, 1]
+    tree_methods = ['hist', 'approx', 'exact']
+
+    for lr, depth, n_estimators, colsample_bynode, colsample_bytree, tree_method in product(lrs, depths, ns_estimators, colsamples_bynode, colsamples_bytree, tree_methods):
+        models[f'XGBoost lr={lr} max_depth={depth} n_ests={n_estimators} cs_by_node={colsample_bynode} cs_by_tree={colsample_bytree} tree_method={tree_method}'] = XGBClassifier(
+            use_label_encoder=False,
+            verbosity=0,
+            booster="gbtree",
+            tree_method=tree_method,
+            random_state=random_state,
+            learning_rate=lr,
+            max_depth=depth,
+            n_estimators=n_estimators,
+            colsample_bynode=colsample_bynode,
+            colsample_bytree=colsample_bytree,
+        )
+
+    return models
+
+
+def init_grid_catboost_models(random_state):
+    models = {
+        'CatBoost default': CatBoostClassifier(random_state=random_state, logging_level='Silent'),
+    }
+
+    lrs = [0.04, 0.08, 0.1, 0.25, 0.5]
+    depths = [2, 3, 4, 5, 6]
+    ns_iterations = [100, 250, 500, 800, 1000, 2000]
+    l2_leaf_regs = [1, 3, 5, 10, 100]
+
+    for lr, depth, iterations, l2_leaf_reg in product(lrs, depths, ns_iterations, l2_leaf_regs):
+        models[f'CatBoost lr={lr} max_depth={depth} iterations={iterations} l2_leaf_reg={l2_leaf_reg}'] = CatBoostClassifier(
+            random_state=random_state,
+            learning_rate=lr,
+            max_depth=depth,
+            iterations=iterations,
+            l2_leaf_reg=l2_leaf_reg,
+            logging_level='Silent'
+        )
+
+    return models
 
 
 def main():
@@ -160,39 +254,14 @@ def main():
     features = preprocessing(features, preprocessing_mode)
     train_features, test_features, train_labels, test_labels = train_test_split(features, labels, test_size=0.2, random_state=random_state)
 
-    boost_grid_parameters = {
-        'random_state': [random_state],
-        'learning_rate': [0.01, 0.025, 0.04, 0.08, 0.1, 0.25, 0.5, 0.8],
-        'n_estimators': [100, 250, 500, 600, 800, 1000],
-        'max_depth': [2, 3, 4, 5, 6]
-    }
-
-    models = {
-        'Logistic regression': LogisticRegression(multi_class="multinomial", max_iter=1000, random_state=random_state),
-        'Nearest centroid': NearestCentroid(),
-        'KNN': KNeighborsClassifier(n_neighbors=5),
-        'Naive Bayes': GaussianNB(),
-        'Passive aggressive': PassiveAggressiveClassifier(random_state=random_state),
-        'SVM': SVC(random_state=random_state),
-        'Ridge': RidgeClassifier(random_state=random_state),
-        'Perceptron': Perceptron(random_state=random_state),
-        'Multi layer perceptron': MLPClassifier(random_state=random_state),
-        'Decision tree': DecisionTreeClassifier(random_state=random_state),
-        'Random forest': RandomForestClassifier(random_state=random_state),
-        'Gradient boost': GradientBoostingClassifier(random_state=random_state),
-        'XGBoost': XGBClassifier(use_label_encoder=False, verbosity=0, random_state=random_state),
-        'CatBoost': CatBoostClassifier(verbose=False, random_state=random_state),
-    }
+    models = init_models(random_state)
 
     if find_boost_params:
-        xg_boost_params = get_optimal_parameters('XGBoost', models['XGBoost'], boost_grid_parameters, features, labels)
-        cat_boost_params = get_optimal_parameters('CatBoost', models['CatBoost'], boost_grid_parameters, features, labels)
-
-        models['XGBoost (optimal)'] = XGBClassifier(use_label_encoder=False, verbosity=0, **xg_boost_params)
-        models['CatBoost (optimal)'] = CatBoostClassifier(verbose=False, **cat_boost_params)
+        models.update(init_grid_xgboost_models(random_state))
+        models.update(init_grid_catboost_models(random_state))
 
     print('## Результаты кроссвалидации')
-    average_results = cross_val(models, features, labels, n_splits=10)
+    average_results = cross_val(models, features, labels, n_splits=10, log_path='results.txt')
 
     print(get_preprocess_name(preprocessing_mode))
     print_average(average_results, sort_key='f1')
